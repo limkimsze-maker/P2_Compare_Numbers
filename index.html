@@ -217,14 +217,14 @@
       min-height: 0;
     }
 
-    /* ✅ Tens: wrap nicely */
+    /* ✅ Tens: fixed 5 columns so tens are easy to count: 5 on top, then the rest below */
     .tensArea{
-      display:flex;
-      flex-direction: row;
-      flex-wrap: wrap;
-      align-content:flex-end;
-      justify-content:center;
+      display:grid;
+      grid-template-columns: repeat(5, var(--tenW));
+      grid-auto-rows: var(--tenH);
       gap: 6px;
+      align-content:end;
+      justify-content:center;
       padding: 6px 4px;
     }
 
@@ -471,7 +471,9 @@
       font-weight: 800;
       outline:none;
       background:#fff;
+      letter-spacing: 2px;
     }
+    .setNum::-ms-reveal, .setNum::-ms-clear{ display:none; }
 
     .toggleRow{
       display:flex;
@@ -522,6 +524,32 @@
       background:#fff;
       white-space:nowrap;
     }
+
+
+    /* ✅ Celebration when everything is correct */
+    .confettiLayer{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      overflow:hidden;
+      z-index:9999;
+    }
+    .confettiPiece{
+      position:absolute;
+      top:-24px;
+      width:10px;
+      height:16px;
+      border-radius:3px;
+      opacity:.95;
+      transform: translate3d(0,0,0) rotate(0deg);
+      animation: confettiFall var(--dur, 1300ms) ease-out forwards;
+    }
+    @keyframes confettiFall{
+      0%{ transform: translate3d(0,-24px,0) rotate(0deg); opacity:1; }
+      78%{ opacity:1; }
+      100%{ transform: translate3d(var(--dx, 0px), 110vh, 0) rotate(var(--rot, 720deg)); opacity:0; }
+    }
+
   </style>
 </head>
 
@@ -665,6 +693,8 @@
     </div>
   </div>
 
+  <div class="confettiLayer" id="confettiLayer" aria-hidden="true"></div>
+
   <div class="drawerOverlay" id="overlay" tabindex="-1" aria-hidden="true"></div>
   <aside class="drawer" id="drawer" aria-label="Teacher Settings Panel">
     <div class="drawerTop">
@@ -675,8 +705,8 @@
       <div class="field">
         <label>Set the two numbers (100–999)</label>
         <div class="numRow">
-          <input class="setNum" id="setLeft" type="number" min="100" max="999" step="1" value="518">
-          <input class="setNum" id="setRight" type="number" min="100" max="999" step="1" value="414">
+          <input class="setNum" id="setLeft" type="password" inputmode="numeric" pattern="[0-9]*" minlength="3" maxlength="3" value="518" aria-label="Left number">
+          <input class="setNum" id="setRight" type="password" inputmode="numeric" pattern="[0-9]*" minlength="3" maxlength="3" value="414" aria-label="Right number">
           <button class="btn" id="applyBtn">Apply</button>
           <button class="btn" id="randomBtn">Random</button>
         </div>
@@ -873,6 +903,80 @@
     function mark(el, ok){
       el.classList.remove('good','bad');
       el.classList.add(ok ? 'good' : 'bad');
+    }
+
+    let lastCelebrateAt = 0;
+
+    function launchConfetti(){
+      const layer = document.getElementById('confettiLayer');
+      if (!layer) return;
+      layer.innerHTML = '';
+
+      const colors = ['#f97316', '#22c55e', '#3b82f6', '#eab308', '#ec4899', '#8b5cf6'];
+      const total = 90;
+
+      for (let i = 0; i < total; i++){
+        const piece = document.createElement('span');
+        piece.className = 'confettiPiece';
+        piece.style.left = (Math.random() * 100) + 'vw';
+        piece.style.background = colors[i % colors.length];
+        piece.style.setProperty('--dx', ((Math.random() * 220) - 110) + 'px');
+        piece.style.setProperty('--rot', ((Math.random() * 900) + 360) + 'deg');
+        piece.style.setProperty('--dur', ((Math.random() * 900) + 1100) + 'ms');
+        piece.style.animationDelay = (Math.random() * 180) + 'ms';
+        layer.appendChild(piece);
+      }
+
+      window.setTimeout(()=>{ layer.innerHTML = ''; }, 2400);
+    }
+
+    function playClapSound(){
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const clapTimes = [0, .11, .22, .34, .48];
+
+      clapTimes.forEach((t, idx)=>{
+        const dur = .085;
+        const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < data.length; i++){
+          const decay = Math.pow(1 - i / data.length, 2.2);
+          data[i] = (Math.random() * 2 - 1) * decay;
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1200 + idx * 140;
+        filter.Q.value = .85;
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(.0001, now + t);
+        gain.gain.exponentialRampToValueAtTime(.65, now + t + .01);
+        gain.gain.exponentialRampToValueAtTime(.0001, now + t + dur);
+
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        source.start(now + t);
+        source.stop(now + t + dur + .02);
+      });
+
+      window.setTimeout(()=> ctx.close(), 900);
+    }
+
+    function celebrateSuccess(){
+      const now = Date.now();
+      if (now - lastCelebrateAt < 900) return;
+      lastCelebrateAt = now;
+      launchConfetti();
+      playClapSound();
     }
 
     function cloneSvgFromTemplate(tpl, className){
@@ -1158,6 +1262,8 @@
         : (!revealPVNumbers && !pvOk)
           ? 'Try again. Fill in Hundreds, Tens and Ones correctly.'
           : 'Try again. Use the unequal signs with the correct numbers.';
+
+      if (ok) celebrateSuccess();
     }
 
     // sanitize inequality inputs
